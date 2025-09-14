@@ -1,0 +1,646 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// First, let's add the City model to our schema (this would go in schema.prisma)
+
+model City {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  state     String
+  country   String   @default("India")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  clients Client[]
+
+  @@map("cities")
+}
+
+// User Management
+model User {
+  id         String    @id @default(cuid())
+  email      String    @unique
+  username   String    @unique
+  password   String
+  role       Role      @default(EMPLOYEE)
+  isActive   Boolean   @default(true)
+  lastLogin  DateTime?
+  lastLogout DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relations
+  createdClients     Client[]    @relation("CreatedBy")
+  assignedComplaints Complaint[] @relation("AssignedTo")
+  createdOrders      Order[]     @relation("CreatedBy")
+  auditLogs          AuditLog[]
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  CLIENT
+}
+
+// Client Management
+model Client {
+  id            String     @id @default(cuid())
+  clientCode    String     @unique
+  companyName   String
+  contactPerson String
+  email         String?
+  phone         String
+  address       String
+  cityId        String // Add this field
+  city          City       @relation(fields: [cityId], references: [id]) // Add this relation
+  state         String
+  pincode       String
+  gstNumber     String?
+  panNumber     String?
+  clientType    ClientType @default(REGULAR)
+  isActive      Boolean    @default(true)
+  billingDate   Int        @default(1) // Day of month
+  creditLimit   Decimal?   @db.Decimal(12, 2)
+
+  // Settings
+  autoForward      Boolean @default(false)
+  hardcopyRequired Boolean @default(false)
+  stopBillMail     Boolean @default(false)
+  isSezClient      Boolean @default(false)
+  isNgoClient      Boolean @default(false)
+  isB2cClient      Boolean @default(false)
+  fixedRental      Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  branches   Branch[]
+  agreements Agreement[]
+  printers   ClientPrinter[]
+  orders     Order[]
+  bills      Bill[]
+  complaints Complaint[]
+  dispatches Dispatch[]
+  payments   Payment[]
+
+  @@map("clients")
+}
+
+enum ClientType {
+  REGULAR
+  FRANCHISE
+  DEALER
+  DISTRIBUTOR
+}
+
+model Branch {
+  id            String  @id @default(cuid())
+  branchName    String
+  address       String
+  contactPerson String
+  phone         String
+  email         String?
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("branches")
+}
+
+// Printer Management
+model PrinterModel {
+  id        String      @id @default(cuid())
+  modelName String      @unique
+  brand     String
+  type      PrinterType
+  isActive  Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  printers   Printer[]
+  cartridges CartridgeModel[]
+
+  @@map("printer_models")
+}
+
+enum PrinterType {
+  LASER
+  INKJET
+  DOT_MATRIX
+  THERMAL
+}
+
+model Printer {
+  id            String           @id @default(cuid())
+  serialNumber  String           @unique
+  modelId       String
+  model         PrinterModel     @relation(fields: [modelId], references: [id])
+  purchaseDate  DateTime?
+  purchasePrice Decimal?         @db.Decimal(10, 2)
+  vendorName    String?
+  condition     PrinterCondition @default(NEW)
+  location      String?
+  isActive      Boolean          @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  clientPrinters ClientPrinter[]
+  agreements     Agreement[]
+
+  @@map("printers")
+}
+
+enum PrinterCondition {
+  NEW
+  GOOD
+  FAIR
+  NEEDS_REPAIR
+  RETIRED
+}
+
+model ClientPrinter {
+  id        String  @id @default(cuid())
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id])
+  printerId String
+  printer   Printer @relation(fields: [printerId], references: [id])
+
+  installDate   DateTime
+  isActive      Boolean     @default(true)
+  rentalType    RentalType?
+  monthlyRental Decimal?    @db.Decimal(8, 2)
+  perPageRate   Decimal?    @db.Decimal(5, 2)
+
+  // Page counting
+  initialPageCount Int       @default(0)
+  currentPageCount Int       @default(0)
+  lastReadingDate  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  pageCountings PageCounting[]
+
+  @@unique([clientId, printerId])
+  @@map("client_printers")
+}
+
+enum RentalType {
+  MONTHLY_RENTAL
+  PER_PAGE
+  FIXED_RENTAL
+}
+
+// Cartridge Management
+model CartridgeModel {
+  id             String         @id @default(cuid())
+  modelName      String         @unique
+  printerModelId String
+  printerModel   PrinterModel   @relation(fields: [printerModelId], references: [id])
+  type           CartridgeType
+  color          CartridgeColor @default(BLACK)
+  pageYield      Int?
+  isActive       Boolean        @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  cartridges Cartridge[]
+  orderItems OrderItem[]
+
+  @@map("cartridge_models")
+}
+
+enum CartridgeType {
+  ORIGINAL
+  COMPATIBLE
+  REFILLED
+}
+
+enum CartridgeColor {
+  BLACK
+  CYAN
+  MAGENTA
+  YELLOW
+  COLOR
+}
+
+model Cartridge {
+  id                String             @id @default(cuid())
+  modelId           String
+  model             CartridgeModel     @relation(fields: [modelId], references: [id])
+  batchNumber       String?
+  manufacturingDate DateTime?
+  expiryDate        DateTime?
+  condition         CartridgeCondition @default(NEW)
+  location          String             @default("WAREHOUSE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  dispatchItems DispatchItem[]
+
+  @@map("cartridges")
+}
+
+enum CartridgeCondition {
+  NEW
+  REFILLED
+  EMPTY
+  DAMAGED
+}
+
+// Order Management
+model Order {
+  id           String        @id @default(cuid())
+  orderNumber  String        @unique
+  clientId     String
+  client       Client        @relation(fields: [clientId], references: [id])
+  orderDate    DateTime      @default(now())
+  requiredDate DateTime?
+  status       OrderStatus   @default(PENDING)
+  priority     OrderPriority @default(NORMAL)
+  notes        String?
+
+  totalAmount Decimal? @db.Decimal(12, 2)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  createdBy   User     @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  orderItems OrderItem[]
+  dispatches Dispatch[]
+
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model OrderItem {
+  id               String         @id @default(cuid())
+  orderId          String
+  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  cartridgeModelId String
+  cartridgeModel   CartridgeModel @relation(fields: [cartridgeModelId], references: [id])
+
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(8, 2)
+  totalPrice Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("order_items")
+}
+
+// Dispatch Management
+model Dispatch {
+  id             String         @id @default(cuid())
+  dispatchNumber String         @unique
+  orderId        String
+  order          Order          @relation(fields: [orderId], references: [id])
+  clientId       String
+  client         Client         @relation(fields: [clientId], references: [id])
+  dispatchDate   DateTime       @default(now())
+  status         DispatchStatus @default(PENDING)
+
+  // Delivery details
+  deliveryBoy    String?
+  vehicleNumber  String?
+  courierCompany String?
+  trackingNumber String?
+  deliveryDate   DateTime?
+  receivedBy     String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  dispatchItems DispatchItem[]
+
+  @@map("dispatches")
+}
+
+enum DispatchStatus {
+  PENDING
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+}
+
+model DispatchItem {
+  id          String    @id @default(cuid())
+  dispatchId  String
+  dispatch    Dispatch  @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  cartridgeId String
+  cartridge   Cartridge @relation(fields: [cartridgeId], references: [id])
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("dispatch_items")
+}
+
+// Billing Management
+model Bill {
+  id         String @id @default(cuid())
+  billNumber String @unique
+  clientId   String
+  client     Client @relation(fields: [clientId], references: [id])
+
+  billDate DateTime  @default(now())
+  dueDate  DateTime?
+  billType BillType
+
+  subtotal      Decimal @db.Decimal(12, 2)
+  taxAmount     Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount   Decimal @db.Decimal(12, 2)
+  paidAmount    Decimal @default(0) @db.Decimal(12, 2)
+  balanceAmount Decimal @db.Decimal(12, 2)
+
+  status BillStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  billItems BillItem[]
+  payments  Payment[]
+
+  @@map("bills")
+}
+
+enum BillType {
+  CARTRIDGE
+  RENTAL
+  PER_PAGE
+  INSTALLATION
+  MAINTENANCE
+}
+
+enum BillStatus {
+  PENDING
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model BillItem {
+  id     String @id @default(cuid())
+  billId String
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(8, 2)
+  totalPrice  Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bill_items")
+}
+
+// Payment Management
+model Payment {
+  id            String  @id @default(cuid())
+  paymentNumber String  @unique
+  clientId      String
+  client        Client  @relation(fields: [clientId], references: [id])
+  billId        String?
+  bill          Bill?   @relation(fields: [billId], references: [id])
+
+  paymentDate   DateTime      @default(now())
+  amount        Decimal       @db.Decimal(12, 2)
+  paymentMethod PaymentMethod
+
+  // Payment details
+  chequeNumber  String?
+  chequeDate    DateTime?
+  bankName      String?
+  transactionId String?
+
+  status PaymentStatus @default(PENDING)
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+  UPI
+  CARD
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  CLEARED
+  BOUNCED
+  CANCELLED
+}
+
+// Complaint Management
+model Complaint {
+  id              String @id @default(cuid())
+  complaintNumber String @unique
+  clientId        String
+  client          Client @relation(fields: [clientId], references: [id])
+
+  title       String
+  description String
+  priority    ComplaintPriority @default(MEDIUM)
+  status      ComplaintStatus   @default(OPEN)
+  category    ComplaintCategory
+
+  reportedDate DateTime @default(now())
+  assignedToId String?
+  assignedTo   User?    @relation("AssignedTo", fields: [assignedToId], references: [id])
+
+  resolvedDate DateTime?
+  resolution   String?
+  feedback     String?
+  rating       Int? // 1-5 stars
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("complaints")
+}
+
+enum ComplaintPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ComplaintStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REOPENED
+}
+
+enum ComplaintCategory {
+  PRINTER_ISSUE
+  CARTRIDGE_ISSUE
+  BILLING_ISSUE
+  DELIVERY_ISSUE
+  SERVICE_ISSUE
+  OTHER
+}
+
+// Agreement Management
+model Agreement {
+  id              String   @id @default(cuid())
+  agreementNumber String   @unique
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id])
+  printerId       String?
+  printer         Printer? @relation(fields: [printerId], references: [id])
+
+  agreementType AgreementType
+  startDate     DateTime
+  endDate       DateTime
+  status        AgreementStatus @default(DRAFT)
+
+  // Terms
+  monthlyRental   Decimal? @db.Decimal(8, 2)
+  perPageRate     Decimal? @db.Decimal(5, 2)
+  securityDeposit Decimal? @db.Decimal(10, 2)
+
+  terms      String?
+  signedDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("agreements")
+}
+
+enum AgreementType {
+  RENTAL
+  PER_PAGE
+  AMC
+  LEASE
+}
+
+enum AgreementStatus {
+  DRAFT
+  SENT
+  SIGNED
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+// Page Counting
+model PageCounting {
+  id              String        @id @default(cuid())
+  clientPrinterId String
+  clientPrinter   ClientPrinter @relation(fields: [clientPrinterId], references: [id])
+
+  readingDate   DateTime @default(now())
+  pageCount     Int
+  previousCount Int      @default(0)
+  pagesUsed     Int
+
+  readBy       String
+  verifiedBy   String?
+  verifiedDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("page_countings")
+}
+
+// Audit Log
+model AuditLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  action    String
+  table     String
+  recordId  String
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// Settings
+model Setting {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  value       String
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
